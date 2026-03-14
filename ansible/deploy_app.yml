@@ -1,0 +1,62 @@
+- name: Hardening and Deployment Playbook
+  hosts: all
+  become: true
+
+  tasks:
+
+  # TASK 1: System Prep
+  - name: Install curl and python3-pip
+    ansible.builtin.apt:
+      name:
+      - curl
+      - python3-pip
+      state: present
+      update_cache: yes
+
+  # TASK 2: Install K3s
+  - name: Install K3s Server
+    ansible.builtin.shell: |
+      curl -sfL https://get.k3s.io | INSTALL_K3S_EXEC="server --write-kubeconfig-mode 644" sh -
+    args:
+      creates: /usr/local/bin/k3s
+
+  # TASK 3: Create kube directory
+  - name: Create kube directory
+    ansible.builtin.file:
+      path: /home/ubuntu/.kube
+      state: directory
+      owner: ubuntu
+      mode: '0755'
+
+  # Copy kubeconfig
+  - name: Copy kubeconfig
+    ansible.builtin.copy:
+      src: /etc/rancher/k3s/k3s.yaml
+      dest: /home/ubuntu/.kube/config
+      owner: ubuntu
+      mode: '0600'
+      remote_src: yes
+
+  # TASK 4: Firewall rules
+  - name: Allow SSH
+    community.general.ufw:
+      rule: allow
+      port: 22
+      proto: tcp
+
+  - name: Allow Kubernetes API
+    community.general.ufw:
+      rule: allow
+      port: 6443
+      proto: tcp
+
+  - name: Allow NodePort range
+    community.general.ufw:
+      rule: allow
+      port: 30000:32767
+      proto: tcp
+
+  - name: Enable UFW firewall
+    community.general.ufw:
+      state: enabled
+      policy: deny

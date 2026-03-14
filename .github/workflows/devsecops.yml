@@ -1,0 +1,139 @@
+name: Sentinel DevSecOps CI
+
+permissions:
+  id-token: write
+  contents: read
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  sentinel-pipeline:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Bandit Security Scan
+        run: |
+          pip install bandit
+          bandit -r ./app -ll
+
+      - name: Build Docker Images
+        run: docker compose build
+
+      - name: Run Trivy Scan
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: 'sentinel-backend:latest'
+          format: 'table'
+          exit-code: '1'
+          severity: 'CRITICAL'
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Tag Docker Images
+        run: |
+          docker tag sentinel-backend:latest ${{ secrets.DOCKER_USERNAME }}/sentinel-backend:latest
+          docker tag sentinel-frontend:latest ${{ secrets.DOCKER_USERNAME }}/sentinel-frontend:latest
+
+      - name: Push Docker Images
+        run: |
+          docker push ${{ secrets.DOCKER_USERNAME }}/sentinel-backend:latest
+          docker push ${{ secrets.DOCKER_USERNAME }}/sentinel-frontend:latest
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::184515318701:role/github-terraform-role
+          aws-region: us-east-1
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_wrapper: false
+
+      - name: Terraform Init
+        working-directory: terraform
+        run: terraform init
+
+      - name: Terraform Plan
+        working-directory: terraform
+        run: terraform plan -var="public_key=${{ secrets.SSH_PUBLIC_KEY }}"
+
+      - name: Terraform Apply
+        working-directory: terraform
+        run: terraform apply -auto-approve -var="public_key=${{ secrets.SSH_PUBLIC_KEY }}"
+        
+      - name: Show Terraform Outputs
+        working-directory: terraform
+        run: terraform output
+
+      - name: Capture Instance IP
+        working-directory: terraform
+        run: |
+          INSTANCE_IP=$(terraform output -raw instance_ip)
+          echo "INSTANCE_IP=$INSTANCE_IP" >> $GITHUB_ENV
+
+      - name: Install Ansible
+        run: |
+          sudo apt update
+          sudo apt install -y ansible
+
+      - name: Wait for SSH
+        run: sleep 30
+
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+
+      - name: Run Ansible
+        env:
+          INSTANCE_IP: ${{ env.INSTANCE_IP }}
+        run: |
+          ansible-playbook \
+          -i "$INSTANCE_IP," \
+          ansible/deploy_app.yml \
+          --user ubuntu \
+          --private-key ~/.ssh/id_rsa \
+          --extra-vars "ansible_ssh_common_args='-o StrictHostKeyChecking=no'"
+      - name: Copy Kubernetes manifests to EC2
+        env:
+          INSTANCE_IP: ${{ env.INSTANCE_IP }}
+        run: |
+          scp -o StrictHostKeyChecking=no -r k8s ubuntu@$INSTANCE_IP:~/k8s
+
+      - name: Deploy Kubernetes
+        env:
+          INSTANCE_IP: ${{ env.INSTANCE_IP }}
+        run: |
+          ssh -o StrictHostKeyChecking=no ubuntu@$INSTANCE_IP << 'EOF'
+          sudo kubectl apply -f ~/k8s/
+          sudo kubectl rollout restart deployment/sentinel-backend
+          sudo kubectl rollout restart deployment/sentinel-frontend
+          EOF
+               
+      - name: Destroy Infrastructure
+        if: failure()
+        working-directory: terraform
+        run: terraform destroy -auto-approve
+        
+      - name: Destroy Infrastructure
+        working-directory: terraform
+        run: terraform destroy -auto-approve
