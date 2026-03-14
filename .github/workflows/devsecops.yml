@@ -133,7 +133,3 @@ jobs:
         if: failure()
         working-directory: terraform
         run: terraform destroy -auto-approve
-        
-      - name: Destroy Infrastructure
-        working-directory: terraform
-        run: terraform destroy -auto-approve
