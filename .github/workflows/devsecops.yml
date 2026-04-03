@@ -27,10 +27,15 @@ jobs:
       - name: Bandit Security Scan
         run: pip install bandit && bandit -r ./app -ll
 
-      - name: Hadolint Dockerfile Lint
+      - name: Hadolint — backend Dockerfile
         uses: hadolint/hadolint-action@v3.1.0
         with:
-          dockerfile: Dockerfile
+          dockerfile: app/Dockerfile
+
+      - name: Hadolint — frontend Dockerfile
+        uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: frontend/Dockerfile
 
       - name: Build Docker Images
         run: docker compose build
