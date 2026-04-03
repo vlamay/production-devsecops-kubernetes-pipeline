@@ -1,11 +1,12 @@
 apiVersion: apps/v1
-kind: deployment
+kind: Deployment
 metadata:
   name: sentinel-backend
+  namespace: sentinel
   labels:
     app: secure-auth-backend
 spec:
-  replicas: 1
+  replicas: 2
   selector:
     matchLabels:
       app: secure-auth-backend
@@ -14,20 +15,51 @@ spec:
       labels:
         app: secure-auth-backend
     spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 2000
       containers:
       - name: secure-auth-backend-container
-        image: mahmmadakhil/sentinel-backend:latest
+        image: mahmmadakhil/sentinel-backend:1.0.0
         ports:
         - containerPort: 8081
         env:
         - name: BACKEND_URL
           value: "http://secure-auth-backend:8081"
-
+        resources:
+          requests:
+            cpu: "100m"
+            memory: "128Mi"
+          limits:
+            cpu: "500m"
+            memory: "512Mi"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8081
+          initialDelaySeconds: 15
+          periodSeconds: 20
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: 8081
+          initialDelaySeconds: 5
+          periodSeconds: 10
+          failureThreshold: 3
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+            - ALL
 ---
 apiVersion: v1
 kind: Service
 metadata:
   name: secure-auth-backend
+  namespace: sentinel
 spec:
   selector:
     app: secure-auth-backend

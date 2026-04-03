@@ -1,23 +1,29 @@
 variable "region" {
-  description = "The AWS region where resources will be created"
+  description = "AWS region"
   type        = string
   default     = "us-east-1"
 }
 
 variable "instance_type" {
-  description = "The instance type to use for the EC2 server"
-  type        = string
-  default     = "t2.micro"
+  type    = string
+  default = "t3.micro"
 }
 
-variable "ami_id" {
-  description = "The AMI ID for the Ubuntu server"
+variable "allowed_admin_cidr" {
+  description = "CIDR for SSH access — use VPN CIDR, never 0.0.0.0/0"
   type        = string
-  default     = "ami-0c101f26f147fa7fd"
+  validation {
+    condition     = can(cidrnetmask(var.allowed_admin_cidr)) && var.allowed_admin_cidr != "0.0.0.0/0"
+    error_message = "Must be a valid CIDR and must NOT be 0.0.0.0/0."
+  }
 }
 
 variable "public_key" {
-  description = "SSH public key"
+  description = "SSH public key for EC2 access"
   type        = string
-  default     = "ssh-rsa placeholder-key"
+  sensitive   = true
+  validation {
+    condition     = can(regex("^(ssh-rsa|ecdsa-sha2|ssh-ed25519) ", var.public_key))
+    error_message = "Must be a valid SSH public key."
+  }
 }

@@ -2,8 +2,9 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: sentinel-frontend
+  namespace: sentinel
 spec:
-  replicas: 1
+  replicas: 2
   selector:
     matchLabels:
       app: secure-auth-frontend
@@ -11,22 +12,71 @@ spec:
     metadata:
       labels:
         app: secure-auth-frontend
-    spec: # <--- Added this missing spec level
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 101
+        fsGroup: 101
       containers:
       - name: secure-auth-frontend-container
-        image: mahmmadakhil/sentinel-frontend:latest
+        image: mahmmadakhil/sentinel-frontend:1.0.0
         ports:
         - containerPort: 80
+        resources:
+          requests:
+            cpu: "50m"
+            memory: "64Mi"
+          limits:
+            cpu: "200m"
+            memory: "256Mi"
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 80
+          initialDelaySeconds: 10
+          periodSeconds: 20
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 80
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
 ---
 apiVersion: v1
 kind: Service
 metadata:
   name: frontend-service
+  namespace: sentinel
 spec:
   selector:
     app: secure-auth-frontend
-  type: NodePort
+  type: ClusterIP
   ports:
   - port: 80
-    nodePort: 30080
     targetPort: 80
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: sentinel-ingress
+  namespace: sentinel
+  annotations:
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+spec:
+  ingressClassName: nginx
+  rules:
+  - host: sentinel.example.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: frontend-service
+            port:
+              number: 80
