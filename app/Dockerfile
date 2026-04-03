@@ -3,6 +3,7 @@ FROM python:3.11-slim AS builder
 WORKDIR /build
 
 RUN apt-get update \
+    && apt-get upgrade -y \
     && apt-get install -y --no-install-recommends \
        gcc \
        libpq-dev \
@@ -16,6 +17,7 @@ FROM python:3.11-slim
 WORKDIR /app
 
 RUN apt-get update \
+    && apt-get upgrade -y \
     && apt-get install -y --no-install-recommends \
        libpq5 \
     && rm -rf /var/lib/apt/lists/*
